@@ -324,6 +324,15 @@ input[type="range"] {
   transform: scale(1.02);
 }
 
+.image-meta {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
+}
+
 .empty-state {
   color: var(--muted);
   font-size: 12px;
@@ -448,7 +457,7 @@ progress::-moz-progress-bar {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  overflow: visible;
 }
 
 #empty {

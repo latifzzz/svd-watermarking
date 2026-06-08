@@ -7,10 +7,10 @@
     <!-- Vendor & Styles -->
     <link rel="stylesheet" href="/static/vendor/cropper.min.css" />
     <link rel="stylesheet" href="/static/vendor/viewer.min.css" />
-    <link rel="stylesheet" href="/static/app.css" />
+    <link rel="stylesheet" href="/static/app.css?v=20260608-3" />
     <script src="/static/vendor/cropper.min.js"></script>
     <script src="/static/vendor/viewer.min.js"></script>
-    <script src="/static/app.js" defer></script>
+    <script src="/static/app.js?v=20260608-3" defer></script>
   </head>
   <body>
     <div class="layout">
@@ -28,6 +28,9 @@
               Original Image (A)
               <input type="file" id="mainFile" accept="image/*" />
             </label>
+            <button id="clearMainImage" class="btn" type="button" disabled>
+              Clear Original Image
+            </button>
             <label>
               Watermark Image (W)
               <input type="file" id="watermarkFile" accept="image/*" />
@@ -40,6 +43,9 @@
                 placeholder="e.g. KELOMPOK 1"
               />
             </label>
+            <button id="clearWatermark" class="btn" type="button" disabled>
+              Clear Watermark
+            </button>
           </div>
         </div>
 
@@ -145,6 +151,9 @@
                 Drag watermark and drag the blue handle to resize. This setup
                 constructs the watermark matrix W before SVD.
               </p>
+              <button id="fitWatermark" class="btn" type="button" disabled>
+                Match Watermark to Original Size
+              </button>
             </div>
           </div>
 

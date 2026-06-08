@@ -10,6 +10,7 @@ let mainImage = null;
 let watermarkImage = null;
 let latestJobId = null;
 let cropper = null;
+const imageMetadata = new Map();
 window.isProcessingSVD = false;
 const overlay = $("overlay");
 const overlayCanvas = overlay.querySelector("canvas");
@@ -30,28 +31,156 @@ function syncRange(range, number) {
 syncRange($("alpha"), $("alphaNumber"));
 syncRange($("quality"), $("qualityNumber"));
 
+function hasMainInput() {
+  return Boolean(
+    mainImage ||
+    $("mainFile").files.length > 0 ||
+    $("mainPreview").getAttribute("src"),
+  );
+}
+
+function hasWatermarkInput() {
+  return Boolean(
+    watermarkImage ||
+    $("watermarkFile").files.length > 0 ||
+    $("watermarkText").value.trim(),
+  );
+}
+
+function hasLoadedWatermark() {
+  return Boolean(watermarkImage || $("watermarkText").value.trim());
+}
+
+const metadataTargets = [
+  "mainPreview",
+  "original",
+  "watermarked",
+  "watermark",
+  "extractedIdeal",
+  "compressed",
+  "extracted",
+  "cropSource",
+  "realCropped",
+  "knownPositionReconstruction",
+  "knownPositionExtracted",
+  "unknownPositionReconstruction",
+  "unknownPositionExtracted",
+];
+
+function formatBytes(bytes) {
+  if (!bytes) return null;
+  const units = ["B", "KB", "MB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function dataUrlType(dataUrl) {
+  const match = /^data:([^;]+);/.exec(dataUrl || "");
+  return match ? match[1] : null;
+}
+
+function dataUrlSize(dataUrl) {
+  const payload = (dataUrl || "").split(",")[1];
+  if (!payload) return null;
+  return Math.floor((payload.length * 3) / 4);
+}
+
+function ensureMetadataElement(imageId) {
+  const image = $(imageId);
+  if (!image || $(`${imageId}Meta`)) return;
+
+  const meta = document.createElement("div");
+  meta.id = `${imageId}Meta`;
+  meta.className = "image-meta";
+  meta.textContent = "Metadata: -";
+
+  const wrapper = image.closest(".preview-box, #stage, .crop-editor-container");
+  if (wrapper) {
+    wrapper.insertAdjacentElement("afterend", meta);
+  }
+}
+
+function updateImageMetadata(imageId, extra = {}) {
+  const image = $(imageId);
+  const meta = $(`${imageId}Meta`);
+  if (!image || !meta) return;
+
+  const saved = { ...(imageMetadata.get(imageId) || {}), ...extra };
+  imageMetadata.set(imageId, saved);
+
+  const width = image.naturalWidth || image.width || saved.width;
+  const height = image.naturalHeight || image.height || saved.height;
+  const type = saved.type || dataUrlType(image.src);
+  const size = saved.size || dataUrlSize(image.src);
+  const parts = [];
+
+  if (width && height) parts.push(`Dimensi: ${width} x ${height}px`);
+  if (type) parts.push(`Tipe: ${type}`);
+  if (size) parts.push(`Ukuran: ${formatBytes(size)}`);
+  if (saved.note) parts.push(saved.note);
+
+  meta.textContent = parts.length ? parts.join(" | ") : "Metadata: -";
+}
+
+function clearImageMetadata(imageId) {
+  imageMetadata.delete(imageId);
+  const meta = $(`${imageId}Meta`);
+  if (meta) meta.textContent = "Metadata: -";
+}
+
+metadataTargets.forEach(ensureMetadataElement);
+
 // ----- Event input gambar dan teks -----
 $("mainFile").addEventListener("change", async (event) => {
   if (!event.target.files[0]) return;
-  mainImage = await fileToImage(event.target.files[0]);
-  $("mainPreview").src = mainImage.src;
-  $("empty").style.display = "none";
+  const file = event.target.files[0];
+  imageMetadata.set("mainPreview", { type: file.type, size: file.size });
+  updateReady();
+  mainImage = await fileToImage(file);
   $("mainPreview").onload = () => {
     resetOverlay();
+    updateImageMetadata("mainPreview");
     updateReady();
   };
+  $("mainPreview").src = mainImage.src;
+  $("empty").style.display = "none";
+  updateReady();
+  requestAnimationFrame(() => {
+    if ($("mainPreview").complete) {
+      resetOverlay();
+      updateImageMetadata("mainPreview");
+      updateReady();
+    }
+  });
 });
 
 $("watermarkFile").addEventListener("change", async (event) => {
   if (!event.target.files[0]) return;
-  watermarkImage = await fileToImage(event.target.files[0]);
+  const file = event.target.files[0];
+  imageMetadata.set("watermark", { type: file.type, size: file.size });
+  updateReady();
+  watermarkImage = await fileToImage(file);
   $("watermarkText").value = "";
   drawOverlay();
   updateReady();
 });
 
 $("watermarkText").addEventListener("input", () => {
-  if ($("watermarkText").value.trim()) watermarkImage = null;
+  if ($("watermarkText").value.trim()) {
+    watermarkImage = null;
+    $("watermarkFile").value = "";
+    imageMetadata.set("watermark", {
+      type: "text/canvas",
+      note: "Sumber: teks",
+    });
+  } else if (!watermarkImage) {
+    clearImageMetadata("watermark");
+  }
   drawOverlay();
   updateReady();
 });
@@ -70,6 +199,21 @@ function resetOverlay() {
     parseFloat(overlay.style.height) -
     18 +
     "px";
+  drawOverlay();
+}
+
+function fitWatermarkToMainImage() {
+  const image = $("mainPreview");
+  const ready = mainImage && hasLoadedWatermark();
+  if (!image || !ready || image.clientWidth === 0 || image.clientHeight === 0) {
+    return;
+  }
+
+  overlay.style.display = "block";
+  overlay.style.left = image.offsetLeft + "px";
+  overlay.style.top = image.offsetTop + "px";
+  overlay.style.width = image.clientWidth + "px";
+  overlay.style.height = image.clientHeight + "px";
   drawOverlay();
 }
 
@@ -133,36 +277,123 @@ $("resize").addEventListener("pointerdown", (e) => {
 });
 $("resize").addEventListener("pointermove", (e) => {
   if (!resizing) return;
-  overlay.style.width =
-    Math.max(60, resizing.w + e.clientX - resizing.x) + "px";
-  overlay.style.height =
-    Math.max(35, resizing.h + e.clientY - resizing.y) + "px";
+  const image = $("mainPreview");
+  const snapDistance = 12;
+  let width = Math.max(60, resizing.w + e.clientX - resizing.x);
+  let height = Math.max(35, resizing.h + e.clientY - resizing.y);
+  const imageRight = image.offsetLeft + image.clientWidth;
+  const imageBottom = image.offsetTop + image.clientHeight;
+  const overlayRight = overlay.offsetLeft + width;
+  const overlayBottom = overlay.offsetTop + height;
+
+  if (Math.abs(overlayRight - imageRight) <= snapDistance) {
+    width = Math.max(60, imageRight - overlay.offsetLeft);
+  }
+  if (Math.abs(overlayBottom - imageBottom) <= snapDistance) {
+    height = Math.max(35, imageBottom - overlay.offsetTop);
+  }
+
+  overlay.style.width = width + "px";
+  overlay.style.height = height + "px";
   drawOverlay();
 });
 $("resize").addEventListener("pointerup", () => (resizing = null));
 
 function moveOverlay(left, top) {
   const image = $("mainPreview");
-  const minX = image.offsetLeft,
-    minY = image.offsetTop;
-  const maxX = minX + image.clientWidth - overlay.clientWidth;
-  const maxY = minY + image.clientHeight - overlay.clientHeight;
-  overlay.style.left = Math.min(maxX, Math.max(minX, left)) + "px";
-  overlay.style.top = Math.min(maxY, Math.max(minY, top)) + "px";
+  const snapDistance = 12;
+  const edges = {
+    left: image.offsetLeft,
+    top: image.offsetTop,
+    right: image.offsetLeft + image.clientWidth,
+    bottom: image.offsetTop + image.clientHeight,
+  };
+
+  const overlayRight = left + overlay.clientWidth;
+  const overlayBottom = top + overlay.clientHeight;
+
+  if (Math.abs(left - edges.left) <= snapDistance) left = edges.left;
+  if (Math.abs(overlayRight - edges.right) <= snapDistance) {
+    left = edges.right - overlay.clientWidth;
+  }
+  if (Math.abs(top - edges.top) <= snapDistance) top = edges.top;
+  if (Math.abs(overlayBottom - edges.bottom) <= snapDistance) {
+    top = edges.bottom - overlay.clientHeight;
+  }
+
+  overlay.style.left = left + "px";
+  overlay.style.top = top + "px";
 }
 
 function updateReady() {
+  const ready = Boolean(mainImage && hasLoadedWatermark());
+  const canInteract = !window.isProcessingSVD;
+
   if (window.isProcessingSVD) {
     $("run").disabled = true;
-    return;
+  } else {
+    $("run").disabled = !ready;
   }
-  const ready =
-    mainImage && (watermarkImage || $("watermarkText").value.trim());
-  $("run").disabled = !ready;
+
+  const fitButton = $("fitWatermark");
+  if (fitButton) fitButton.disabled = !ready || !canInteract;
+
+  const clearMainButton = $("clearMainImage");
+  if (clearMainButton) {
+    clearMainButton.disabled = !hasMainInput() || !canInteract;
+  }
+
+  const clearWatermarkButton = $("clearWatermark");
+  if (clearWatermarkButton) {
+    clearWatermarkButton.disabled = !hasWatermarkInput() || !canInteract;
+  }
+
   $("status").textContent = ready
     ? "Siap. Atur posisi lalu jalankan embedding."
     : "Pilih gambar utama dan watermark/teks.";
 }
+
+$("fitWatermark")?.addEventListener("click", fitWatermarkToMainImage);
+
+$("clearMainImage")?.addEventListener("click", () => {
+  mainImage = null;
+  latestJobId = null;
+  $("mainFile").value = "";
+  $("mainPreview").onload = null;
+  $("mainPreview").removeAttribute("src");
+  $("empty").style.display = "block";
+  overlay.style.display = "none";
+  clearImageMetadata("mainPreview");
+  [
+    "original",
+    "watermarked",
+    "watermark",
+    "extractedIdeal",
+    "compressed",
+    "extracted",
+    "cropSource",
+    "realCropped",
+    "knownPositionReconstruction",
+    "knownPositionExtracted",
+    "unknownPositionReconstruction",
+    "unknownPositionExtracted",
+  ].forEach(clearImageMetadata);
+  $("runCrop").disabled = true;
+  $("cropStatus").textContent =
+    "Run embedding first before testing crop robustness.";
+  updateReady();
+});
+
+$("clearWatermark")?.addEventListener("click", () => {
+  watermarkImage = null;
+  $("watermarkFile").value = "";
+  $("watermarkText").value = "";
+  overlay.style.display = "none";
+  clearImageMetadata("watermark");
+  updateReady();
+});
+
+document.addEventListener("DOMContentLoaded", updateReady);
 
 function lockSidebar() {
   const sidebar = document.querySelector(".sidebar");
@@ -188,12 +419,9 @@ function unlockSidebar() {
       sidebar.classList.remove("sidebar-readonly");
       const inputs = sidebar.querySelectorAll("input, button");
       inputs.forEach((input) => {
-        if (input.id === "run") {
-          updateReady();
-        } else {
-          input.disabled = false;
-        }
+        input.disabled = false;
       });
+      updateReady();
     }
   }
 }
@@ -267,6 +495,10 @@ function dataUrlToCanvas(dataUrl, targetId) {
         if (typeof Viewer !== "undefined") {
           updateViewerForImage(target);
         }
+        updateImageMetadata(targetId, {
+          type: dataUrlType(dataUrl),
+          size: dataUrlSize(dataUrl),
+        });
         resolve();
       };
       target.onerror = reject;
@@ -277,6 +509,12 @@ function dataUrlToCanvas(dataUrl, targetId) {
         target.width = image.naturalWidth;
         target.height = image.naturalHeight;
         target.getContext("2d").drawImage(image, 0, 0);
+        updateImageMetadata(targetId, {
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+          type: dataUrlType(dataUrl),
+          size: dataUrlSize(dataUrl),
+        });
         resolve();
       };
       image.onerror = reject;
@@ -290,7 +528,13 @@ function dataUrlToCanvas(dataUrl, targetId) {
 function dataUrlToImage(dataUrl, targetId) {
   return new Promise((resolve, reject) => {
     const image = $(targetId);
-    image.onload = resolve;
+    image.onload = () => {
+      updateImageMetadata(targetId, {
+        type: dataUrlType(dataUrl),
+        size: dataUrlSize(dataUrl),
+      });
+      resolve();
+    };
     image.onerror = reject;
     image.src = dataUrl;
   });
@@ -300,16 +544,28 @@ function copyCanvas(source, id) {
   const target = $(id);
   if (target) {
     if (target.tagName.toLowerCase() === "img") {
+      const dataUrl = source.toDataURL("image/png");
       target.onload = () => {
         if (typeof Viewer !== "undefined") {
           updateViewerForImage(target);
         }
+        updateImageMetadata(id, {
+          width: source.width,
+          height: source.height,
+          type: "image/png",
+          size: dataUrlSize(dataUrl),
+        });
       };
-      target.src = source.toDataURL();
+      target.src = dataUrl;
     } else {
       target.width = source.width;
       target.height = source.height;
       target.getContext("2d").drawImage(source, 0, 0);
+      updateImageMetadata(id, {
+        width: source.width,
+        height: source.height,
+        type: "image/png",
+      });
     }
   }
 }
