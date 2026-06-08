@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SVD Image Watermarking</title>
+    <!-- Vendor & Styles -->
+    <link rel="stylesheet" href="/static/vendor/cropper.min.css" />
+    <link rel="stylesheet" href="/static/vendor/viewer.min.css" />
+    <link rel="stylesheet" href="/static/app.css" />
+    <script src="/static/vendor/cropper.min.js"></script>
+    <script src="/static/vendor/viewer.min.js"></script>
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <div class="layout">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <span>SVD Image Watermarking</span>
+        </div>
+
+        <!-- 1. Data Input -->
+        <div class="control-group">
+          <h3>1. Data Input</h3>
+          <div class="input-stack">
+            <label>
+              Original Image (A)
+              <input type="file" id="mainFile" accept="image/*" />
+            </label>
+            <label>
+              Watermark Image (W)
+              <input type="file" id="watermarkFile" accept="image/*" />
+            </label>
+            <label>
+              Or Watermark Text
+              <input
+                type="text"
+                id="watermarkText"
+                placeholder="e.g. KELOMPOK 1"
+              />
+            </label>
+          </div>
+        </div>
+
+        <!-- 2. Hyperparameters -->
+        <div class="control-group">
+          <h3>2. Hyperparameters</h3>
+          <div class="input-stack">
+            <label>
+              Alpha Strength (α)
+              <div class="slider-row">
+                <input
+                  type="range"
+                  id="alpha"
+                  min="0.01"
+                  max="1"
+                  step="0.01"
+                  value="0.18"
+                />
+                <input
+                  type="number"
+                  id="alphaNumber"
+                  min="0.01"
+                  max="1"
+                  step="0.01"
+                  value="0.18"
+                  style="width: 65px"
+                />
+              </div>
+            </label>
+            <label>
+              JPEG Quality Test
+              <div class="slider-row">
+                <input
+                  type="range"
+                  id="quality"
+                  min="0.1"
+                  max="1"
+                  step="0.05"
+                  value="0.85"
+                />
+                <input
+                  type="number"
+                  id="qualityNumber"
+                  min="0.1"
+                  max="1"
+                  step="0.05"
+                  value="0.85"
+                  style="width: 65px"
+                />
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Embed & Test Button -->
+        <div class="control-group">
+          <button id="run" class="btn btn-primary" disabled>
+            Embed + Extract
+          </button>
+          <progress id="progress" max="100" value="0"></progress>
+          <div id="status" class="status-box">Upload images to begin</div>
+        </div>
+
+        <!-- Theory -->
+        <div class="control-group">
+          <h3>Theory</h3>
+          <div class="formula-box">
+            A = UΣVᵀ<br />
+            W = U<sub>w</sub>Σ<sub>w</sub>V<sub>w</sub>ᵀ<br />
+            A<sub>m</sub> = A + αU<sub>w</sub>Σ<sub>w</sub>Vᵀ<br />
+            W̃ = α⁻¹(Ã<sub>m</sub> − A)VV<sub>w</sub>ᵀ
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Area -->
+      <main class="main">
+        <!-- Tabs Navigation -->
+        <nav class="tabs">
+          <div class="tab active" data-tab="setup">Setup & Align</div>
+          <div class="tab" data-tab="embedding">Results</div>
+          <div class="tab" data-tab="robustness">Robustness</div>
+        </nav>
+
+        <div class="content-area">
+          <!-- Tab 1: Setup & Align -->
+          <div class="tab-content active" id="tab-setup">
+            <div class="card">
+              <div class="card-header">
+                <h2>Position Watermark Matrix (W)</h2>
+              </div>
+              <div id="stage">
+                <p id="empty" class="empty-state">
+                  Main image will appear here
+                </p>
+                <img id="mainPreview" alt="" />
+                <div id="overlay">
+                  <canvas></canvas>
+                  <span id="resize"></span>
+                </div>
+              </div>
+              <p class="hint">
+                Drag watermark and drag the blue handle to resize. This setup
+                constructs the watermark matrix W before SVD.
+              </p>
+            </div>
+          </div>
+
+          <!-- Tab 2: Results -->
+          <div class="tab-content" id="tab-embedding">
+            <div class="grid">
+              <div class="card">
+                <div class="card-header">
+                  <h2>Original (A)</h2>
+                </div>
+                <div class="preview-box">
+                  <img id="original" alt="Original Image" />
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-header">
+                  <h2>Watermarked (A<sub>m</sub>)</h2>
+                </div>
+                <div class="preview-box">
+                  <img id="watermarked" alt="Watermarked Image" />
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-header">
+                  <h2>Watermark (W)</h2>
+                </div>
+                <div class="preview-box">
+                  <img id="watermark" alt="Watermark Image" />
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-header">
+                  <h2>Extracted (W̃ - Ideal)</h2>
+                </div>
+                <div class="preview-box">
+                  <img id="extractedIdeal" alt="Extracted Ideal Watermark" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Metrics -->
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <span class="metric-label">Correlation</span>
+                <span class="metric-value" id="corr">-</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 3: Robustness & Crop -->
+          <div class="tab-content" id="tab-robustness">
+            <!-- JPEG Attack Row -->
+            <div class="grid">
+              <div class="card">
+                <div class="card-header">
+                  <h2>JPEG Compression</h2>
+                  <span class="badge" id="val-quality-disp">85%</span>
+                </div>
+                <div class="preview-box">
+                  <img id="compressed" alt="JPEG Compressed Image" />
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-header">
+                  <h2>Extracted</h2>
+                </div>
+                <div class="preview-box">
+                  <img id="extracted" alt="Extracted Watermark" />
+                </div>
+                <div
+                  style="
+                    margin-top: 0.75rem;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.25rem;
+                  "
+                >
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      font-size: 13px;
+                    "
+                  >
+                    <span style="color: var(--muted); font-weight: 500"
+                      >Correlation:</span
+                    >
+                    <span
+                      id="wcorr"
+                      style="font-family: var(--font-mono); font-weight: 700"
+                      >-</span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Crop Attack Simulator -->
+            <div class="card" style="margin-top: 2rem">
+              <div class="card-header">
+                <h2>Crop Attack Simulation</h2>
+                <button id="runCrop" class="btn btn-primary" disabled>
+                  Execute Crop
+                </button>
+              </div>
+
+              <div class="crop-editor-container">
+                <img id="cropSource" alt="Watermarked image untuk crop" />
+              </div>
+
+              <div class="crop-tools">
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  data-crop-action="select-all"
+                >
+                  Select All (Full Image)
+                </button>
+                <button
+                  type="button"
+                  class="btn"
+                  data-crop-action="rotate-left"
+                >
+                  Rotate -90°
+                </button>
+                <button
+                  type="button"
+                  class="btn"
+                  data-crop-action="rotate-right"
+                >
+                  Rotate +90°
+                </button>
+                <button type="button" class="btn" data-crop-action="zoom-in">
+                  Zoom +
+                </button>
+                <button type="button" class="btn" data-crop-action="zoom-out">
+                  Zoom −
+                </button>
+                <button type="button" class="btn" data-crop-action="reset">
+                  Reset
+                </button>
+
+                <div
+                  style="
+                    flex: 1 1 100%;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.25rem;
+                    margin-top: 0.5rem;
+                  "
+                >
+                  <span
+                    style="font-size: 12px; font-weight: 600; color: var(--fg)"
+                    >Rotation</span
+                  >
+                  <div class="slider-row">
+                    <input
+                      type="range"
+                      id="cropRotateSlider"
+                      min="-180"
+                      max="180"
+                      step="1"
+                      value="0"
+                      style="accent-color: var(--accent)"
+                    />
+                    <span
+                      id="cropRotateValue"
+                      style="
+                        font-family: var(--font-mono);
+                        font-size: 13px;
+                        width: 45px;
+                        text-align: right;
+                        font-weight: 600;
+                      "
+                      >0°</span
+                    >
+                  </div>
+                </div>
+              </div>
+
+              <div
+                id="cropStatus"
+                class="status-box"
+                style="text-align: left; margin-top: 0.5rem"
+              >
+                Execute SVD embedding first.
+              </div>
+
+              <!-- Crop Outputs Grid -->
+              <div class="grid" style="margin-top: 1rem">
+                <!-- Output 1: Crop Nyata -->
+                <div class="card">
+                  <h4>Cropped Output</h4>
+                  <div class="preview-box">
+                    <img id="realCropped" alt="Real Cropped Output" />
+                  </div>
+                </div>
+
+                <!-- Output 2: Diketahui -->
+                <div class="card">
+                  <div
+                    class="card-header"
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      align-items: center;
+                      width: 100%;
+                    "
+                  >
+                    <h4
+                      style="
+                        margin: 0;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: var(--fg);
+                      "
+                    >
+                      Known Position
+                    </h4>
+                  </div>
+                  <div class="crop-sub-grid">
+                    <div>
+                      <h4>Reconstruction</h4>
+                      <div class="preview-box" style="aspect-ratio: 1/1">
+                        <img
+                          id="knownPositionReconstruction"
+                          alt="Known Position Reconstruction"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>Extracted W̃</h4>
+                      <div class="preview-box" style="aspect-ratio: 1/1">
+                        <img
+                          id="knownPositionExtracted"
+                          alt="Known Position Extracted W"
+                        />
+                      </div>
+                      <div
+                        style="
+                          margin-top: 0.75rem;
+                          display: flex;
+                          flex-direction: column;
+                          gap: 0.25rem;
+                        "
+                      >
+                        <div
+                          style="
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 12px;
+                          "
+                        >
+                          <span style="color: var(--muted); font-weight: 500"
+                            >Correlation:</span
+                          >
+                          <span
+                            id="knownCropCorr"
+                            style="
+                              font-family: var(--font-mono);
+                              font-weight: 700;
+                            "
+                            >-</span
+                          >
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Output 3: Tidak Diketahui -->
+                <div class="card">
+                  <div
+                    class="card-header"
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      align-items: center;
+                      width: 100%;
+                    "
+                  >
+                    <h4
+                      style="
+                        margin: 0;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: var(--fg);
+                      "
+                    >
+                      Unknown Position
+                    </h4>
+                  </div>
+                  <div class="crop-sub-grid">
+                    <div>
+                      <h4>Reconstruction</h4>
+                      <div class="preview-box" style="aspect-ratio: 1/1">
+                        <img
+                          id="unknownPositionReconstruction"
+                          alt="Unknown Position Reconstruction"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>Extracted W̃</h4>
+                      <div class="preview-box" style="aspect-ratio: 1/1">
+                        <img
+                          id="unknownPositionExtracted"
+                          alt="Unknown Position Extracted W"
+                        />
+                      </div>
+                      <div
+                        style="
+                          margin-top: 0.75rem;
+                          display: flex;
+                          flex-direction: column;
+                          gap: 0.25rem;
+                        "
+                      >
+                        <div
+                          style="
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 12px;
+                          "
+                        >
+                          <span style="color: var(--muted); font-weight: 500"
+                            >Correlation:</span
+                          >
+                          <span
+                            id="unknownCropCorr"
+                            style="
+                              font-family: var(--font-mono);
+                              font-weight: 700;
+                            "
+                            >-</span
+                          >
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- UI Interaction Helper -->
+    <script>
+      // Tab Handler
+      document.addEventListener("DOMContentLoaded", () => {
+        const sidebar = document.querySelector(".sidebar");
+        const sidebarInputs = sidebar.querySelectorAll("input, button");
+
+        document.querySelectorAll(".tab").forEach((tab) => {
+          tab.addEventListener("click", () => {
+            document
+              .querySelectorAll(".tab, .tab-content")
+              .forEach((el) => el.classList.remove("active"));
+            tab.classList.add("active");
+            const contentId = `tab-${tab.dataset.tab}`;
+            const targetContent = document.getElementById(contentId);
+            if (targetContent) {
+              targetContent.classList.add("active");
+            }
+
+            // Toggle sidebar read-only state based on tab selection
+            if (tab.dataset.tab === "setup") {
+              if (window.isProcessingSVD) {
+                if (typeof lockSidebar === "function") {
+                  lockSidebar();
+                }
+              } else {
+                if (typeof unlockSidebar === "function") {
+                  unlockSidebar();
+                }
+              }
+            } else {
+              if (typeof lockSidebar === "function") {
+                lockSidebar();
+              }
+
+              if (tab.dataset.tab === "robustness") {
+                const cropSource = document.getElementById("cropSource");
+                if (
+                  cropSource &&
+                  cropSource.src &&
+                  !cropSource.src.endsWith("/") &&
+                  typeof initializeCropEditor === "function"
+                ) {
+                  setTimeout(() => {
+                    initializeCropEditor();
+                    window.dispatchEvent(new Event("resize"));
+                  }, 80);
+                }
+              }
+            }
+          });
+        });
+
+        // Sync quality slider text content
+        const qualitySlider = document.getElementById("quality");
+        if (qualitySlider) {
+          qualitySlider.addEventListener("input", (e) => {
+            const disp = document.getElementById("val-quality-disp");
+            if (disp) {
+              disp.textContent = Math.round(e.target.value * 100) + "%";
+            }
+          });
+        }
+
+        // Custom crop rotation slider listener
+        const cropRotateSlider = document.getElementById("cropRotateSlider");
+        const cropRotateValue = document.getElementById("cropRotateValue");
+        if (cropRotateSlider) {
+          cropRotateSlider.addEventListener("input", (e) => {
+            const val = e.target.value;
+            if (cropRotateValue) {
+              cropRotateValue.textContent = val + "°";
+            }
+            if (typeof cropper !== "undefined" && cropper) {
+              const canvasData = cropper.getCanvasData();
+              if (canvasData) {
+                cropper.setCropBoxData({
+                  width: 20,
+                  height: 20,
+                  left: canvasData.left + canvasData.width / 2 - 10,
+                  top: canvasData.top + canvasData.height / 2 - 10,
+                });
+              }
+              cropper.rotateTo(parseFloat(val));
+              if (typeof fitImageToContainer === "function") {
+                fitImageToContainer();
+              }
+              if (typeof adjustCropBoxToMaxFit === "function") {
+                adjustCropBoxToMaxFit();
+              }
+            }
+          });
+        }
+      });
+    </script>
+  </body>
+</html>
