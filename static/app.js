@@ -976,6 +976,8 @@ $("run").addEventListener("click", async () => {
 
     $("corr").textContent =
       result.metrics.correlation_original_watermarked.toFixed(5);
+    $("idealWcorr").textContent =
+      result.metrics.correlation_watermark_extracted_ideal.toFixed(5);
     const ncVal = result.metrics.correlation_watermark_extracted;
     $("wcorr").textContent = ncVal.toFixed(5);
     await setProgress(

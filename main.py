@@ -345,6 +345,9 @@ async def embed_image_handler(
             "correlation_original_watermarked": corr(
                 original_matrix, watermarked_matrix
             ),
+            "correlation_watermark_extracted_ideal": corr(
+                watermark_matrix, extracted_matrix
+            ),
             "correlation_watermark_extracted": corr(
                 watermark_matrix, extracted_compressed_matrix
             ),
